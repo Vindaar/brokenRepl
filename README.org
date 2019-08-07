@@ -1,0 +1,142 @@
+* BrokenREPL
+
+The amazing Nim *BrokenREPL*.
+
+As the name suggests, it's broken. :P It's more of a prototype to test
+out the HCR functionality.
+
+To test this broken piece of software:
+
+First compile the =nimrtl= and =nimhcr= files as shared libraries
+(assuming your nim binary is built from source and is located in
+=<nim_source>/bin=) and copy them to the brokenrepl directory:
+#+BEGIN_SRC sh
+nimExPath=`which nim`
+echo $nimExPath
+libPath=`dirname $nimExPath`/../lib
+echo $libPath
+nim c --app:lib $libPath/nimrtl.nim
+cp $libPath/libnimrtl.so .
+nim c --app:lib $libPath/nimhcr.nim
+cp $libPath/libnimhcr.so .
+#+END_SRC
+
+However, you probably want to compile the =nimhcr= with =-d:traceHce=,
+because chances are you're going to be greeted by segfaults
+etc. quickly, so instead:
+#+BEGIN_SRC sh
+nim c --app:lib -d:traceHcr $libPath/nimhcr.so
+#+END_SRC
+
+With that done, compile the actual repl:
+#+BEGIN_SRC sh
+nim c -o:newrepl --hotcodereloading:on brokenrepl.nim
+#+END_SRC
+and run it. :)
+
+NOTE: the different name of the output binary is used, because
+otherwise we sometimes get 
+#+BEGIN_SRC sh
+Text file is busy
+#+END_SRC
+=OSErrors=, when performing the recompilation of the repl while
+running it. Since we do not care about any changes to =brokenrepl.nim=
+(only to the imported modules, specifically =replStore.nim=)
+
+
+You'll see crashes almost immediately, if after:
+#+BEGIN_SRC nim
+let x = @[1.1, 2.2, 3.3]
+#+END_SRC
+you try to echo it:
+#+BEGIN_SRC nim
+echo x
+#+END_SRC
+which may (or may not sometimes...) result in a GC SIGSEGV:
+#+BEGIN_SRC sh
+/home/schmidt/CastData/ExternCode/brokenrepl/brokenrepl.nim(126) brokenrepl
+/home/schmidt/CastData/ExternCode/brokenrepl/brokenrepl.nim(121) main
+/home/schmidt/src/nim/nim_git_repo/lib/nimhcr.nim(585) hcrPerformCodeReload
+/home/schmidt/src/nim/nim_git_repo/lib/nimhcr.nim(567) recursiveExecuteHandlers
+/home/schmidt/src/nim/nim_git_repo/lib/nimhcr.nim(571) recursiveExecuteHandlers
+/home/schmidt/CastData/ExternCode/brokenrepl/replStore.nim(16) :anonymous
+/home/schmidt/src/nim/nim_git_repo/lib/system/assign.nim(147) genericSeqAssign
+/home/schmidt/src/nim/nim_git_repo/lib/system/assign.nim(111) genericAssign
+/home/schmidt/src/nim/nim_git_repo/lib/system/assign.nim(67) genericAssignAux
+/home/schmidt/src/nim/nim_git_repo/lib/system/gc.nim(254) unsureAsgnRef
+/home/schmidt/src/nim/nim_git_repo/lib/system/gc.nim(200) decRef
+#+END_SRC
+
+If we are brave and just maim =gc.nim= by uncommenting (/cough/) line
+200 in the file:
+#+BEGIN_SRC 
+c.refcount = c.refcount -% rcIncrement
+#+END_SRC
+we won't be greeted by any SIGSEGVs anymore at least. 
+(NOTE: compiling with =--gc:none= does not work with HCR / RTL (not
+sure, which is the culprit)).
+
+With this hack, the repl "sort of" works. However, we again encounter
+problems, if we import some module, e.g.:
+#+BEGIN_SRC nim
+import sequtils
+#+END_SRC
+which works fine and then for instance:
+#+BEGIN_SRC nim
+let y = toSeq(0 .. 10)
+#+END_SRC
+which is stil fine. However, trying to echo our new variable:
+#+BEGIN_SRC nim 
+echo y
+#+END_SRC
+will most likely result in something like:
+#+BEGIN_SRC sh
+/home/schmidt/CastData/ExternCode/brokenrepl/brokenrepl.nim(126) brokenrepl
+/home/schmidt/CastData/ExternCode/brokenrepl/brokenrepl.nim(121) main
+/home/schmidt/src/nim/nim_git_repo/lib/nimhcr.nim(581) hcrPerformCodeReload
+/home/schmidt/src/nim/nim_git_repo/lib/nimhcr.nim(504) initModules
+/home/schmidt/src/nim/nim_git_repo/lib/nimhcr.nim(350) hcrGetProc
+/home/schmidt/src/nim/nim_git_repo/lib/pure/collections/tables.nim(263) []
+Error: unhandled exception: key not found: Dl_297399_ [KeyError]
+#+END_SRC
+
+If we have compiled the =nimhcr= with =-d:traceHcr=, we should
+encounter a few lines like:
+#+BEGIN_SRC sh
+Cleaning up modules to init in `initModules` /home/schmidt/.cache/nim/brokenrepl_d/libstdlib_strutils.nim.c.so 
+HCR Cleaning modules[module].procs :: Dl_294916_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_297399_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_294252_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_297475_ 3                                                          
+Cleaning up modules to init in `initModules` /home/schmidt/.cache/nim/brokenrepl_d/libreplStore.nim.c.so            
+Cleaning up modules to init in `initModules` /home/schmidt/.cache/nim/brokenrepl_d/libstdlib_os.nim.c.so       
+HCR Cleaning modules[module].procs :: Dl_354430_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_344869_ 3                                                          
+Cleaning up modules to init in `initModules` /home/schmidt/.cache/nim/brokenrepl_d/libstdlib_osproc.nim.c.so   
+HCR Cleaning modules[module].procs :: Dl_375513_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_375473_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_375519_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_375458_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_375522_ 3                                                          
+HCR Cleaning modules[module].procs :: Dl_375488_ 3                                                          
+Cleaning up modules to init in `initModules` /home/schmidt/.cache/nim/brokenrepl_d/lib_7shell7shell.nim.c.so   
+#+END_SRC
+
+And tadaaa, we see that for some reason HCR decided to clean up the
+=Dl_297339_= proc (I assume that's the name for `$` for our type or
+something?). Haven't figured that out yet.
+
+The caching of HCR seems to be quite smart though, so that even upon
+quitting and restarting the repl, some things will still be loaded. I
+think if one encounters a bug pointing to a =Dl_*= missing, sometimes
+recompiling the repl with =-f=, rerunning it with the same commands as
+before, makes it work. It seems like in those cases for some reason
+the symbols are not cleaned up or something?
+
+However, in the cases when it for some reason does work, importing
+some other module, e.g.
+#+BEGIN_SRC nim
+import strutils
+#+END_SRC
+will then cause the cleanup that will remove the procs that we similar
+to the above. Maybe this points to some weird name clashing?
