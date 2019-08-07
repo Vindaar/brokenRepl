@@ -101,7 +101,8 @@ Error: unhandled exception: key not found: Dl_297399_ [KeyError]
 #+END_SRC
 
 If we have compiled the =nimhcr= with =-d:traceHcr=, we should
-encounter a few lines like:
+encounter a few lines like the following somewhere above in the
+output (possibly after entering the =let y =...=):
 #+BEGIN_SRC sh
 Cleaning up modules to init in `initModules` /home/schmidt/.cache/nim/brokenrepl_d/libstdlib_strutils.nim.c.so 
 HCR Cleaning modules[module].procs :: Dl_294916_ 3                                                          
