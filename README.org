@@ -139,5 +139,6 @@ some other module, e.g.
 #+BEGIN_SRC nim
 import strutils
 #+END_SRC
-will then cause the cleanup that will remove the procs that we similar
-to the above. Maybe this points to some weird name clashing?
+will then cause the cleanup that will remove the procs we need, similar
+to the above, i.e. calling =echo y= again, will probably break then.
+
